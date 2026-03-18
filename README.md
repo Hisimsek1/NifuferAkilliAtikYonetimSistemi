@@ -4,7 +4,7 @@ Makine öğrenmesi ile konteyner doluluk tahmini ve TSP/VRP algoritmaları ile r
 
 ## Proje Hakkında
 
-Bu sistem, verileri kullanarak kendi bazı verilerini üretiyor. Elindeki veriler ile doluluk tahmini yapan , rota tahmini yapan modeller geliştirdik.
+Bu sistem, mevcut verileri analiz ederek türetilmiş veriler üretmektedir. Sahip olduğumuz veri seti üzerinden doluluk tahmini ve rota tahmini yapabilen modeller geliştirdik.
 
 ### Temel Özellikler
 
