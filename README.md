@@ -4,7 +4,7 @@ Makine öğrenmesi ile konteyner doluluk tahmini ve TSP/VRP algoritmaları ile r
 
 ## Proje Hakkında
 
-Bu sistem, 634,297 GPS kaydı kullanarak atık toplama rotalarını optimize eder ve konteyner doluluk tahminleri yapar. GradientBoosting Regressor ve TSP/VRP algoritmaları ile çalışır.
+Bu sistem, verileri kullanarak kendi bazı verilerini üretiyor. Elindeki veriler ile doluluk tahmini yapan , rota tahmini yapan modeller geliştirdik.
 
 ### Temel Özellikler
 
