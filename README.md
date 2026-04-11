@@ -1,5 +1,5 @@
 # Nilüfer Belediyesi - Akıllı Atık Yönetim Sistemi
-
+Nilüfer belediyesi ve Uludağ Üniversitesi Yapay Zeka Topluluğunun
 Makine öğrenmesi ile konteyner doluluk tahmini ve TSP/VRP algoritmaları ile rota optimizasyonu yapan web tabanlı sistem.
 
 ## Proje Hakkında
