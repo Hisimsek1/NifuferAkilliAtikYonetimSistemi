@@ -34,7 +34,7 @@ Bu sistem, mevcut verileri analiz ederek türetilmiş veriler üretmektedir. Sah
   - Kapasite kısıt yönetimi (%85 hedef, %100 max)
   - OSRM API entegrasyonu ile gerçek sokak rotaları
 
-### Web Arayüzü
+### Web Arayüzü 
 
 #### Ana Sayfa (index.html)
 - Karşılaştırmalı metrikler: Yakıt, mesafe, zaman, CO₂
