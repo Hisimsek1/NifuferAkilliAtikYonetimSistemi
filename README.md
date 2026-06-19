@@ -12,7 +12,7 @@ Bu sistem, mevcut verileri analiz ederek türetilmiş veriler üretmektedir. Sah
 - **GradientBoosting Model**: R² = 1.0000, MAE = 0.0004
 - **Veri Seti**: 634,297 GPS kaydı
 - **Optimizasyon**: %40 yakıt tasarrufu, %29 CO₂ azaltımı
-- **Kapsam**: 2,608 konteyner, 74 mahalle, 45 araç
+- **Kapsam**: 2,608 konteyner, 74 mahalle, 45 araç 
 
 ## Sistem Mimarisi
 
