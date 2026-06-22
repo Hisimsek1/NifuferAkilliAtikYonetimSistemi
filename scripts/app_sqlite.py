@@ -25,8 +25,8 @@ model_data = None
 try:
     model_data = joblib.load(MODEL_PATH)
     print(f"✓ Model yüklendi")
-except:
-    print(f"⚠️ Model bulunamadı")
+except (FileNotFoundError, Exception) as e:
+    print(f"⚠️ Model bulunamadı: {e}")
 
 # Model eğitim sayacı (her 10 doğru bildirimde bir eğit)
 training_counter = {'verified_count': 0, 'threshold': 10}
@@ -261,7 +261,7 @@ def predict_container(container_id):
         'confidence': float(max(probabilities)),
         'latitude': float(row[5]),
         'longitude': float(row[6]),
-        'model_version': model_data['version'],
+        'model_version': model_data.get('trained_at', 'unknown'),
         'prediction_timestamp': datetime.now().isoformat()
     })
 
@@ -271,12 +271,24 @@ def register():
     from flask import request
     from werkzeug.security import generate_password_hash
     
-    data = request.json
-    
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'error': 'Geçersiz veya eksik JSON gövdesi'}), 400
+
     required = ['name', 'tc_number', 'phone', 'password']
     if not all(k in data for k in required):
         return jsonify({'error': 'Tüm alanları doldurun'}), 400
-    
+
+    # Uzunluk sınırları
+    if len(str(data['name'])) > 100:
+        return jsonify({'error': 'İsim çok uzun'}), 400
+    if len(str(data['password'])) < 6:
+        return jsonify({'error': 'Şifre en az 6 karakter olmalıdır'}), 400
+    if len(str(data['password'])) > 200:
+        return jsonify({'error': 'Şifre çok uzun'}), 400
+    if len(str(data['phone'])) > 20:
+        return jsonify({'error': 'Telefon numarası geçersiz'}), 400
+
     # TC numarası doğrulama (11 haneli)
     tc = str(data['tc_number']).strip()
     if len(tc) != 11 or not tc.isdigit():
@@ -317,8 +329,10 @@ def login():
     from flask import request
     from werkzeug.security import check_password_hash
     
-    data = request.json
-    
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'error': 'Geçersiz veya eksik JSON gövdesi'}), 400
+
     if not data.get('tc_number') or not data.get('password'):
         return jsonify({'error': 'TC numarası ve şifre gerekli'}), 400
     
@@ -480,17 +494,26 @@ def submit_report():
     """Vatandaş bildirimi gönder"""
     from flask import request
     
-    data = request.json
-    
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'error': 'Geçersiz veya eksik JSON gövdesi'}), 400
+
     # Zorunlu alanlar
     if not all(k in data for k in ['user_id', 'container_id', 'fill_level']):
         return jsonify({'error': 'Eksik bilgi'}), 400
-    
-    user_id = data['user_id']
-    container_id = data['container_id']
-    fill_level = float(data['fill_level']) / 100.0  # Yüzdeyi 0-1 arasına çevir
-    notes = data.get('notes', '')
-    has_photo = data.get('has_photo', False)
+
+    try:
+        user_id = int(data['user_id'])
+        container_id = int(data['container_id'])
+        fill_level = float(data['fill_level']) / 100.0  # Yüzdeyi 0-1 arasına çevir
+    except (ValueError, TypeError):
+        return jsonify({'error': 'Geçersiz user_id, container_id veya fill_level değeri'}), 400
+
+    if not (0.0 <= fill_level <= 1.0):
+        return jsonify({'error': 'fill_level 0 ile 100 arasında olmalıdır'}), 400
+
+    notes = str(data.get('notes', ''))[:500]  # 500 karakter ile sınırla
+    has_photo = bool(data.get('has_photo', False))
     
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -826,7 +849,8 @@ def optimize_routes():
         
     except Exception as e:
         conn.close()
-        return jsonify({'success': False, 'message': str(e)})
+        print(f"optimize_routes hatası: {e}")
+        return jsonify({'success': False, 'message': 'Rota optimizasyonu sırasında bir hata oluştu'})
 
 if __name__ == '__main__':
     print("=" * 60)

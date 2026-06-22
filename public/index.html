@@ -340,7 +340,7 @@
         <div class="control-panel">
             <div class="control-header">
                 <h2>Rota Kontrolü</h2>
-                <button class="btn-optimize" onclick="optimizeRoutes()">Rotaları Optimize Et</button>
+                <button class="btn-optimize" onclick="optimizeRoutes(event)">Rotaları Optimize Et</button>
             </div>
             <div class="vehicle-selector">
                 <label for="vehicleSelect">Araç Seçimi:</label>
@@ -452,6 +452,15 @@
         let routeMap = null;
         let activeRouteLayer = null;
         window.allRoutes = [];
+
+        function escapeHTML(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
         
         // Initialize map
         document.addEventListener('DOMContentLoaded', function() {
@@ -472,8 +481,8 @@
             addMapLegend();
         });
         
-        async function optimizeRoutes() {
-            const button = event.target;
+        async function optimizeRoutes(event) {
+            const button = event.currentTarget;
             const originalText = button.textContent;
             
             button.disabled = true;
@@ -483,7 +492,11 @@
                 const response = await fetch('/api/fleet/optimize-routes', {
                     method: 'GET'
                 });
-                
+
+                if (!response.ok) {
+                    throw new Error(`Sunucu hatası: ${response.status} ${response.statusText}`);
+                }
+
                 const data = await response.json();
                 
                 if (data.success) {
@@ -687,13 +700,13 @@
                                     Durak #${idx + 1}
                                 </div>
                                 <div style="margin-bottom: 4px; font-size: 12px;">
-                                    <strong>Doluluk:</strong> 
-                                    <span style="color: ${statusColor}; font-weight: 600;">${fillPercentRounded}%</span>
+                                    <strong>Doluluk:</strong>
+                                    <span style="color: ${statusColor}; font-weight: 600;">${escapeHTML(fillPercentRounded)}%</span>
                                 </div>
-                                <div style="margin-bottom: 4px; font-size: 12px;"><strong>Tip:</strong> ${container.container_type}</div>
-                                <div style="margin-bottom: 4px; font-size: 12px;"><strong>Kapasite:</strong> ${container.capacity_liters}L</div>
+                                <div style="margin-bottom: 4px; font-size: 12px;"><strong>Tip:</strong> ${escapeHTML(container.container_type)}</div>
+                                <div style="margin-bottom: 4px; font-size: 12px;"><strong>Kapasite:</strong> ${escapeHTML(container.capacity_liters)}L</div>
                                 <div style="margin-top: 8px; padding: 6px; background: ${statusColor}15; border: 1px solid ${statusColor}30; border-radius: 2px; text-align: center; font-size: 11px;">
-                                    <strong style="color: ${statusColor};">${statusBadge}</strong>
+                                    <strong style="color: ${statusColor};">${escapeHTML(statusBadge)}</strong>
                                 </div>
                             </div>
                         `);
@@ -755,6 +768,9 @@
                 
                 const response = await fetch(osrmUrl, { signal: controller.signal });
                 clearTimeout(timeoutId);
+                if (!response.ok) {
+                    throw new Error(`OSRM hatası: ${response.status}`);
+                }
                 const data = await response.json();
                 
                 if (data.code === 'Ok' && data.routes && data.routes[0]) {

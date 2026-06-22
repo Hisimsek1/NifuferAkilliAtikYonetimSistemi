@@ -21,7 +21,10 @@ def load_neighborhoods():
     cursor = conn.cursor()
     
     for _, row in df.iterrows():
-        area = row.get('alan', 2.0)
+        area_raw = row.get('alan')
+        area = float(area_raw) if pd.notna(area_raw) else 2.0
+        if not pd.notna(row.get('nufus')):
+            continue
         nufus = int(str(row['nufus']).replace('.', ''))  # 4.371 -> 4371
         density = nufus / area if area > 0 else 5000
         

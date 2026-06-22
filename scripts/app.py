@@ -20,7 +20,7 @@ app = Flask(__name__, static_folder='public', static_url_path='')
 CORS(app)
 
 # Konfigürasyon
-app.config['SECRET_KEY'] = 'nilufer-waste-management-2024'  # Üretimde değiştirin!
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'nilufer-waste-management-2024-dev-only')  # Üretimde SECRET_KEY env değişkenini ayarlayın!
 DB_CONFIG = {
     'host': 'localhost',
     'user': 'root',
@@ -35,8 +35,8 @@ model_data = None
 try:
     model_data = joblib.load(MODEL_PATH)
     print(f"✓ Model yüklendi: {MODEL_PATH}")
-except:
-    print(f"⚠️ Model bulunamadı: {MODEL_PATH}")
+except (FileNotFoundError, Exception) as e:
+    print(f"⚠️ Model bulunamadı: {MODEL_PATH} - {e}")
     print("  Önce train_model.py'yi çalıştırın!")
 
 # Veritabanı bağlantısı
@@ -59,7 +59,9 @@ def token_required(f):
             data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
             request.user_id = data['user_id']
             request.user_role = data['role']
-        except:
+        except jwt.ExpiredSignatureError:
+            return jsonify({'error': 'Token süresi dolmuş'}), 401
+        except jwt.InvalidTokenError:
             return jsonify({'error': 'Geçersiz token'}), 401
         
         return f(*args, **kwargs)
