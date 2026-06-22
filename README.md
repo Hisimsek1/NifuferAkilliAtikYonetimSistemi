@@ -1,17 +1,18 @@
 # Nilüfer Belediyesi - Akıllı Atık Yönetim Sistemi
+Nilüfer belediyesi ve Uludağ Üniversitesi Yapay Zeka Topluluğunun düzenlediği Yapay Zeka Hackathon'u projem. Bu projede kısaca ;
 
 Makine öğrenmesi ile konteyner doluluk tahmini ve TSP/VRP algoritmaları ile rota optimizasyonu yapan web tabanlı sistem.
 
 ## Proje Hakkında
 
-Bu sistem, 634,297 GPS kaydı kullanarak atık toplama rotalarını optimize eder ve konteyner doluluk tahminleri yapar. GradientBoosting Regressor ve TSP/VRP algoritmaları ile çalışır.
+Bu sistem, mevcut verileri analiz ederek türetilmiş veriler üretmektedir. Sahip olduğumuz veri seti üzerinden doluluk tahmini ve rota tahmini yapabilen modeller geliştirdik.
 
 ### Temel Özellikler
 
 - **GradientBoosting Model**: R² = 1.0000, MAE = 0.0004
 - **Veri Seti**: 634,297 GPS kaydı
 - **Optimizasyon**: %40 yakıt tasarrufu, %29 CO₂ azaltımı
-- **Kapsam**: 2,608 konteyner, 74 mahalle, 45 araç
+- **Kapsam**: 2,608 konteyner, 74 mahalle, 45 araç 
 
 ## Sistem Mimarisi
 
@@ -33,7 +34,7 @@ Bu sistem, 634,297 GPS kaydı kullanarak atık toplama rotalarını optimize ede
   - Kapasite kısıt yönetimi (%85 hedef, %100 max)
   - OSRM API entegrasyonu ile gerçek sokak rotaları
 
-### Web Arayüzü
+### Web Arayüzü 
 
 #### Ana Sayfa (index.html)
 - Karşılaştırmalı metrikler: Yakıt, mesafe, zaman, CO₂
