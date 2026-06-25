@@ -424,6 +424,138 @@ def dashboard_stats():
     finally:
         conn.close()
 
+@app.route('/api/reports', methods=['POST'])
+def create_report():
+    """Vatandaş şikayeti oluştur"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'Geçersiz istek gövdesi'}), 400
+
+        container_id = data.get('container_id')
+        fill_level_estimate = data.get('fill_level_estimate', 0.8)
+        issue_type = data.get('issue_type', 'FULL')
+        notes = data.get('notes', '')
+        latitude = data.get('latitude', 40.1885)
+        longitude = data.get('longitude', 28.9784)
+        neighborhood = data.get('neighborhood', '')
+
+        valid_issue_types = {'FULL', 'OVERFLOW', 'DAMAGED', 'MISSING', 'ODOR', 'OTHER'}
+        if issue_type not in valid_issue_types:
+            issue_type = 'OTHER'
+
+        try:
+            fill_level_estimate = float(fill_level_estimate)
+            fill_level_estimate = max(0.0, min(1.0, fill_level_estimate))
+        except (ValueError, TypeError):
+            fill_level_estimate = 0.8
+
+        if notes:
+            notes = str(notes)[:500]
+
+        conn = get_db_connection()
+        try:
+            conn.execute('''
+                ALTER TABLE citizen_reports ADD COLUMN issue_type TEXT DEFAULT 'FULL'
+            ''')
+            conn.commit()
+        except Exception:
+            pass
+        try:
+            conn.execute('''
+                ALTER TABLE citizen_reports ADD COLUMN status TEXT DEFAULT 'PENDING'
+            ''')
+            conn.commit()
+        except Exception:
+            pass
+        try:
+            conn.execute('''
+                ALTER TABLE citizen_reports ADD COLUMN neighborhood TEXT DEFAULT ''
+            ''')
+            conn.commit()
+        except Exception:
+            pass
+
+        try:
+            cursor = conn.execute('''
+                INSERT INTO citizen_reports
+                    (container_id, fill_level_estimate, latitude, longitude, notes,
+                     issue_type, status, neighborhood, submitted_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)
+            ''', (
+                container_id,
+                fill_level_estimate,
+                latitude,
+                longitude,
+                notes,
+                issue_type,
+                neighborhood,
+                datetime.now().isoformat()
+            ))
+            conn.commit()
+            report_id = cursor.lastrowid
+            return jsonify({
+                'success': True,
+                'report_id': report_id,
+                'reference': f'NB-{datetime.now().year}-{report_id:04d}',
+                'status': 'PENDING',
+                'message': 'Bildiriminiz alındı. En kısa sürede değerlendirilecektir.',
+                'estimated_response_hours': 4
+            }), 201
+        finally:
+            conn.close()
+
+    except Exception as e:
+        app.logger.error(f"create_report hatası: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': 'Bildirim kaydedilemedi'}), 500
+
+
+@app.route('/api/reports', methods=['GET'])
+def get_reports():
+    """Şikayetleri listele (admin)"""
+    conn = get_db_connection()
+    try:
+        status_filter = request.args.get('status', '')
+        if status_filter and status_filter in ('PENDING', 'REVIEWED', 'RESOLVED', 'REJECTED'):
+            rows = conn.execute('''
+                SELECT r.*, c.container_type
+                FROM citizen_reports r
+                LEFT JOIN containers c ON r.container_id = c.container_id
+                WHERE r.status = ?
+                ORDER BY r.submitted_at DESC
+                LIMIT 100
+            ''', (status_filter,)).fetchall()
+        else:
+            rows = conn.execute('''
+                SELECT r.*, c.container_type
+                FROM citizen_reports r
+                LEFT JOIN containers c ON r.container_id = c.container_id
+                ORDER BY r.submitted_at DESC
+                LIMIT 100
+            ''').fetchall()
+        return jsonify({'reports': [dict(r) for r in rows], 'count': len(rows)})
+    finally:
+        conn.close()
+
+
+@app.route('/api/reports/stats', methods=['GET'])
+def report_stats():
+    """Şikayet istatistikleri"""
+    conn = get_db_connection()
+    try:
+        total = conn.execute('SELECT COUNT(*) as c FROM citizen_reports').fetchone()['c']
+        by_issue = conn.execute('''
+            SELECT COALESCE(issue_type,'FULL') as issue_type, COUNT(*) as count
+            FROM citizen_reports GROUP BY issue_type
+        ''').fetchall()
+        return jsonify({
+            'total': total,
+            'by_issue_type': [dict(r) for r in by_issue]
+        })
+    finally:
+        conn.close()
+
+
 @app.route('/containers/all')
 def containers_all():
     """Tüm konteynerleri detaylı getir"""

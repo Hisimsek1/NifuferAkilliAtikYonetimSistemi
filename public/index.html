@@ -913,6 +913,245 @@
         }
     </script>
 
+    <!-- ============ ŞİKAYET / BİLDİRİM FORMU MODALİ ============ -->
+    <style>
+        .report-modal-overlay {
+            display: none;
+            position: fixed; inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 10000;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+        .report-modal-overlay.open { display: flex; }
+        .report-modal {
+            background: #fff;
+            border-radius: 12px;
+            padding: 2rem;
+            width: 100%;
+            max-width: 520px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            position: relative;
+        }
+        .report-modal h2 { font-size: 1.1rem; font-weight: 700; color: #1e3a5f; margin-bottom: 1.5rem; }
+        .report-issue-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 1.25rem; }
+        .report-issue-card {
+            border: 2px solid #e2e8f0; border-radius: 8px; padding: 10px 8px;
+            text-align: center; cursor: pointer; transition: all 0.15s;
+            font-size: 0.75rem; color: #475569;
+        }
+        .report-issue-card:hover { border-color: #1e3a5f; }
+        .report-issue-card.selected { border-color: #1e3a5f; background: #f0f4f8; color: #1e3a5f; font-weight: 600; }
+        .report-issue-card .issue-icon { font-size: 1.5rem; display: block; margin-bottom: 4px; }
+        .report-field { margin-bottom: 1rem; }
+        .report-field label { display: block; font-size: 0.8rem; font-weight: 600; color: #334155; margin-bottom: 4px; }
+        .report-field input, .report-field select, .report-field textarea {
+            width: 100%; border: 1.5px solid #e2e8f0; border-radius: 6px;
+            padding: 8px 12px; font-size: 0.85rem; color: #1e293b;
+            font-family: inherit; background: #f8fafc;
+            transition: border-color 0.15s;
+        }
+        .report-field input:focus, .report-field select:focus, .report-field textarea:focus {
+            outline: none; border-color: #1e3a5f; background: #fff;
+        }
+        .report-field textarea { resize: vertical; min-height: 80px; }
+        .report-char-count { font-size: 0.7rem; color: #94a3b8; text-align: right; margin-top: 2px; }
+        .report-submit-btn {
+            width: 100%; background: #1e3a5f; color: #fff; border: none;
+            border-radius: 8px; padding: 12px; font-size: 0.9rem; font-weight: 600;
+            cursor: pointer; transition: background 0.15s; font-family: inherit;
+        }
+        .report-submit-btn:hover { background: #2d5a8a; }
+        .report-submit-btn:disabled { background: #94a3b8; cursor: not-allowed; }
+        .report-success-box {
+            display: none; text-align: center; padding: 2rem 1rem;
+        }
+        .report-success-box .success-icon { font-size: 3rem; margin-bottom: 1rem; }
+        .report-success-box h3 { color: #16a34a; font-size: 1rem; margin-bottom: 0.5rem; }
+        .report-success-box p { color: #64748b; font-size: 0.85rem; }
+        .report-reference { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 8px 12px; margin: 1rem 0; font-family: monospace; font-size: 0.85rem; color: #16a34a; font-weight: 600; }
+        .report-new-btn { margin-top: 1rem; background: none; border: 2px solid #1e3a5f; color: #1e3a5f; border-radius: 8px; padding: 10px 20px; cursor: pointer; font-family: inherit; font-weight: 600; font-size: 0.85rem; }
+        .report-close-btn { position: absolute; top: 1rem; right: 1rem; background: none; border: none; font-size: 1.3rem; cursor: pointer; color: #94a3b8; }
+        .report-close-btn:hover { color: #475569; }
+        #reportBtn {
+            position: fixed; bottom: 24px; right: 24px; z-index: 9000;
+            background: #1e3a5f; color: #fff; border: none; border-radius: 50px;
+            padding: 12px 20px; font-size: 0.85rem; font-weight: 600;
+            cursor: pointer; box-shadow: 0 4px 16px rgba(30,58,95,0.4);
+            display: flex; align-items: center; gap: 8px; font-family: inherit;
+            transition: transform 0.15s, box-shadow 0.15s;
+        }
+        #reportBtn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(30,58,95,0.5); }
+    </style>
+
+    <!-- Şikayet Butonu -->
+    <button id="reportBtn" onclick="openReportModal()">
+        📢 Sorun Bildir
+    </button>
+
+    <!-- Modal -->
+    <div class="report-modal-overlay" id="reportModalOverlay" onclick="if(event.target===this)closeReportModal()">
+        <div class="report-modal">
+            <button class="report-close-btn" onclick="closeReportModal()">×</button>
+
+            <div id="reportFormSection">
+                <h2>📢 Sorun Bildir</h2>
+
+                <div class="report-field">
+                    <label>Sorun Türü *</label>
+                    <div class="report-issue-grid">
+                        <div class="report-issue-card selected" data-type="FULL" onclick="selectIssueType(this)">
+                            <span class="issue-icon">🗑️</span>Konteyner Dolu
+                        </div>
+                        <div class="report-issue-card" data-type="OVERFLOW" onclick="selectIssueType(this)">
+                            <span class="issue-icon">♻️</span>Taşıyor
+                        </div>
+                        <div class="report-issue-card" data-type="DAMAGED" onclick="selectIssueType(this)">
+                            <span class="issue-icon">🔧</span>Hasarlı
+                        </div>
+                        <div class="report-issue-card" data-type="MISSING" onclick="selectIssueType(this)">
+                            <span class="issue-icon">❓</span>Eksik
+                        </div>
+                        <div class="report-issue-card" data-type="ODOR" onclick="selectIssueType(this)">
+                            <span class="issue-icon">💨</span>Koku
+                        </div>
+                        <div class="report-issue-card" data-type="OTHER" onclick="selectIssueType(this)">
+                            <span class="issue-icon">📝</span>Diğer
+                        </div>
+                    </div>
+                </div>
+
+                <div class="report-field">
+                    <label>Mahalle</label>
+                    <select id="reportNeighborhood">
+                        <option value="">Mahalle seçin (isteğe bağlı)</option>
+                    </select>
+                </div>
+
+                <div class="report-field">
+                    <label>Konteyner No (isteğe bağlı)</label>
+                    <input type="number" id="reportContainerId" placeholder="Konteyner numarasını bilin?" min="1">
+                </div>
+
+                <div class="report-field">
+                    <label>Açıklama</label>
+                    <textarea id="reportNotes" placeholder="Sorunu detaylı açıklayın..." maxlength="500"
+                        oninput="document.getElementById('noteCount').textContent=this.value.length"></textarea>
+                    <div class="report-char-count"><span id="noteCount">0</span>/500</div>
+                </div>
+
+                <button class="report-submit-btn" id="reportSubmitBtn" onclick="submitReport()">
+                    Bildirimi Gönder
+                </button>
+            </div>
+
+            <div class="report-success-box" id="reportSuccessSection">
+                <div class="success-icon">✅</div>
+                <h3>Bildiriminiz Alındı!</h3>
+                <p>Ekiplerimiz en kısa sürede değerlendirecek.</p>
+                <div class="report-reference" id="reportReference">NB-2024-0001</div>
+                <p style="font-size:0.75rem;color:#94a3b8;">Tahmini yanıt süresi: 4 saat</p>
+                <button class="report-new-btn" onclick="resetReportForm()">Yeni Bildirim</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let _selectedIssueType = 'FULL';
+
+        function openReportModal() {
+            document.getElementById('reportModalOverlay').classList.add('open');
+            loadNeighborhoodsForReport();
+        }
+        function closeReportModal() {
+            document.getElementById('reportModalOverlay').classList.remove('open');
+        }
+        function selectIssueType(el) {
+            document.querySelectorAll('.report-issue-card').forEach(c => c.classList.remove('selected'));
+            el.classList.add('selected');
+            _selectedIssueType = el.dataset.type;
+        }
+        function resetReportForm() {
+            document.getElementById('reportFormSection').style.display = 'block';
+            document.getElementById('reportSuccessSection').style.display = 'none';
+            document.getElementById('reportNotes').value = '';
+            document.getElementById('reportContainerId').value = '';
+            document.getElementById('noteCount').textContent = '0';
+            _selectedIssueType = 'FULL';
+            document.querySelectorAll('.report-issue-card').forEach((c,i) => c.classList.toggle('selected', i===0));
+        }
+
+        function loadNeighborhoodsForReport() {
+            const sel = document.getElementById('reportNeighborhood');
+            if (sel.options.length > 1) return;
+            fetch('/api/neighborhoods')
+                .then(r => r.json())
+                .then(data => {
+                    data.forEach(n => {
+                        const opt = document.createElement('option');
+                        opt.value = n.neighborhood_name;
+                        opt.textContent = n.neighborhood_name;
+                        sel.appendChild(opt);
+                    });
+                })
+                .catch(() => {});
+        }
+
+        async function submitReport() {
+            const btn = document.getElementById('reportSubmitBtn');
+            const notes = document.getElementById('reportNotes').value.trim();
+            const containerId = document.getElementById('reportContainerId').value;
+            const neighborhood = document.getElementById('reportNeighborhood').value;
+
+            btn.disabled = true;
+            btn.textContent = 'Gönderiliyor...';
+
+            let lat = 40.1885, lon = 28.9784;
+            try {
+                if (navigator.geolocation) {
+                    const pos = await new Promise((res, rej) =>
+                        navigator.geolocation.getCurrentPosition(res, rej, {timeout: 5000})
+                    );
+                    lat = pos.coords.latitude;
+                    lon = pos.coords.longitude;
+                }
+            } catch(e) { /* varsayılan koordinat kullan */ }
+
+            try {
+                const resp = await fetch('/api/reports', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        issue_type: _selectedIssueType,
+                        notes,
+                        container_id: containerId ? parseInt(containerId) : null,
+                        neighborhood,
+                        fill_level_estimate: 0.85,
+                        latitude: lat,
+                        longitude: lon
+                    })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    document.getElementById('reportReference').textContent = data.reference;
+                    document.getElementById('reportFormSection').style.display = 'none';
+                    document.getElementById('reportSuccessSection').style.display = 'block';
+                    showToast('Bildirim Alındı', `Referans: ${data.reference}`, 'success', 5000);
+                } else {
+                    showToast('Hata', data.error || 'Bildirim gönderilemedi', 'critical', 4000);
+                }
+            } catch(e) {
+                showToast('Bağlantı Hatası', 'Sunucuya ulaşılamadı, lütfen tekrar deneyin.', 'critical', 4000);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Bildirimi Gönder';
+            }
+        }
+    </script>
+
     <!-- ============ GERÇEK ZAMANLI BİLDİRİM SİSTEMİ ============ -->
     <style>
         #notifContainer {
