@@ -695,7 +695,7 @@
                         }
                         
                         marker.bindPopup(`
-                            <div style="font-family: IBM Plex Sans; min-width: 200px; background: white; padding: 12px; border-radius: 4px; border: 1px solid #e2e8f0;">
+                            <div style="font-family: IBM Plex Sans; min-width: 210px; background: white; padding: 12px; border-radius: 4px; border: 1px solid #e2e8f0;">
                                 <div style="font-weight: 600; font-size: 13px; margin-bottom: 8px; color: ${color}; border-bottom: 1px solid ${color}; padding-bottom: 4px;">
                                     Durak #${idx + 1}
                                 </div>
@@ -708,6 +708,9 @@
                                 <div style="margin-top: 8px; padding: 6px; background: ${statusColor}15; border: 1px solid ${statusColor}30; border-radius: 2px; text-align: center; font-size: 11px;">
                                     <strong style="color: ${statusColor};">${escapeHTML(statusBadge)}</strong>
                                 </div>
+                                <button onclick="openHistoryPanel(${container.container_id},'${escapeHTML(container.container_type)}','','${container.fill_level}')" style="width:100%;margin-top:8px;background:#1e3a5f;color:#fff;border:none;border-radius:4px;padding:6px;font-size:11px;cursor:pointer;font-family:inherit;">
+                                    📊 Doluluk Geçmişini Gör
+                                </button>
                             </div>
                         `);
                         
@@ -910,6 +913,196 @@
             };
             
             legend.addTo(routeMap);
+        }
+    </script>
+
+    <!-- ============ KONTEYNER GEÇMİŞ PANELİ ============ -->
+    <style>
+        #historyPanel {
+            position: fixed; top: 0; right: -400px; width: 380px; height: 100vh;
+            background: #fff; box-shadow: -4px 0 20px rgba(0,0,0,0.15);
+            z-index: 10001; transition: right 0.3s ease; overflow-y: auto;
+            display: flex; flex-direction: column;
+        }
+        #historyPanel.open { right: 0; }
+        #historyOverlay {
+            display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3);
+            z-index: 10000;
+        }
+        #historyOverlay.open { display: block; }
+        .hist-header {
+            background: #1e3a5f; color: #fff; padding: 1.25rem 1.5rem;
+            display: flex; justify-content: space-between; align-items: flex-start;
+            flex-shrink: 0;
+        }
+        .hist-header h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 4px; }
+        .hist-header p  { font-size: 0.75rem; opacity: 0.8; }
+        .hist-close { background: none; border: none; color: #fff; font-size: 1.3rem; cursor: pointer; padding: 0; }
+        .hist-body { padding: 1.25rem 1.5rem; flex: 1; }
+        .hist-current { background: #f8fafc; border-radius: 8px; padding: 1rem; margin-bottom: 1.25rem; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .hist-current-label { font-size: 0.72rem; color: #64748b; }
+        .hist-current-value { font-size: 1rem; font-weight: 700; color: #0f172a; }
+        .hist-chart-wrap { height: 200px; margin-bottom: 1.25rem; }
+        .hist-trend { background: #f0f4f8; border-radius: 8px; padding: 1rem; margin-bottom: 1.25rem; }
+        .hist-trend-title { font-size: 0.75rem; font-weight: 600; color: #475569; margin-bottom: 8px; }
+        .hist-trend-row { display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 4px; }
+        .hist-trend-label { color: #64748b; }
+        .hist-trend-val { font-weight: 600; color: #1e3a5f; }
+        .hist-period-btns { display: flex; gap: 6px; margin-bottom: 1rem; }
+        .hist-period-btn {
+            flex: 1; border: 1.5px solid #e2e8f0; background: #f8fafc; border-radius: 6px;
+            padding: 6px; font-size: 0.75rem; cursor: pointer; font-family: inherit; color: #475569;
+        }
+        .hist-period-btn.active { border-color: #1e3a5f; background: #1e3a5f; color: #fff; font-weight: 600; }
+    </style>
+
+    <div id="historyOverlay" onclick="closeHistoryPanel()"></div>
+    <div id="historyPanel">
+        <div class="hist-header">
+            <div>
+                <h3 id="histPanelTitle">Konteyner Geçmişi</h3>
+                <p id="histPanelSubtitle">Doluluk trend analizi</p>
+            </div>
+            <button class="hist-close" onclick="closeHistoryPanel()">×</button>
+        </div>
+        <div class="hist-body">
+            <div class="hist-current" id="histCurrentInfo">
+                <div>
+                    <div class="hist-current-label">Güncel Doluluk</div>
+                    <div class="hist-current-value" id="histCurrentFill">—</div>
+                </div>
+                <div>
+                    <div class="hist-current-label">Konteyner Tipi</div>
+                    <div class="hist-current-value" id="histContainerType">—</div>
+                </div>
+            </div>
+
+            <div class="hist-period-btns">
+                <button class="hist-period-btn active" onclick="loadHistory(7, this)">7 Gün</button>
+                <button class="hist-period-btn" onclick="loadHistory(30, this)">30 Gün</button>
+                <button class="hist-period-btn" onclick="loadHistory(90, this)">90 Gün</button>
+            </div>
+
+            <div class="hist-chart-wrap">
+                <canvas id="historyChart"></canvas>
+            </div>
+
+            <div class="hist-trend" id="histTrendBox" style="display:none;">
+                <div class="hist-trend-title">📈 Trend Analizi</div>
+                <div class="hist-trend-row">
+                    <span class="hist-trend-label">Günlük Artış Hızı</span>
+                    <span class="hist-trend-val" id="histDailyRate">—</span>
+                </div>
+                <div class="hist-trend-row">
+                    <span class="hist-trend-label">Trend Yönü</span>
+                    <span class="hist-trend-val" id="histTrendDir">—</span>
+                </div>
+                <div class="hist-trend-row">
+                    <span class="hist-trend-label">Tahmini Dolma Süresi</span>
+                    <span class="hist-trend-val" id="histHoursToFull">—</span>
+                </div>
+            </div>
+
+            <div id="histNoData" style="text-align:center;padding:2rem;color:#94a3b8;display:none;">
+                <div style="font-size:2rem;margin-bottom:8px;">📊</div>
+                <p style="font-size:0.85rem;">Bu periyot için yeterli veri yok</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let _historyContainerId = null;
+        let _historyChart = null;
+
+        function openHistoryPanel(containerId, containerType, neighborhood, currentFill) {
+            _historyContainerId = containerId;
+            document.getElementById('histPanelTitle').textContent = `#${containerId} Konteyner`;
+            document.getElementById('histPanelSubtitle').textContent = neighborhood || 'Doluluk Geçmişi';
+            document.getElementById('histCurrentFill').textContent = `%${Math.round(currentFill * 100)}`;
+            document.getElementById('histContainerType').textContent = containerType || '—';
+            document.getElementById('historyOverlay').classList.add('open');
+            document.getElementById('historyPanel').classList.add('open');
+            // Reset period buttons
+            document.querySelectorAll('.hist-period-btn').forEach((b,i) => b.classList.toggle('active', i===0));
+            loadHistory(7);
+        }
+
+        function closeHistoryPanel() {
+            document.getElementById('historyOverlay').classList.remove('open');
+            document.getElementById('historyPanel').classList.remove('open');
+        }
+
+        async function loadHistory(days, btn) {
+            if (btn) {
+                document.querySelectorAll('.hist-period-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            }
+            if (!_historyContainerId) return;
+
+            try {
+                const resp = await fetch(`/api/containers/${_historyContainerId}/history?days=${days}`);
+                const data = await resp.json();
+
+                if (!data.history || data.history.length === 0) {
+                    document.getElementById('histNoData').style.display = 'block';
+                    document.getElementById('histTrendBox').style.display = 'none';
+                    if (_historyChart) { _historyChart.destroy(); _historyChart = null; }
+                    return;
+                }
+
+                document.getElementById('histNoData').style.display = 'none';
+                renderHistoryChart(data.history);
+
+                if (data.trend) {
+                    const dir = { INCREASING: '↑ Artıyor', DECREASING: '↓ Azalıyor', STABLE: '→ Sabit' };
+                    document.getElementById('histDailyRate').textContent = `%${data.trend.daily_fill_rate}/gün`;
+                    document.getElementById('histTrendDir').textContent = dir[data.trend.direction] || '—';
+                    document.getElementById('histHoursToFull').textContent =
+                        data.trend.hours_until_full ? `~${data.trend.hours_until_full} saat` : 'Belirsiz';
+                    document.getElementById('histTrendBox').style.display = 'block';
+                } else {
+                    document.getElementById('histTrendBox').style.display = 'none';
+                }
+            } catch(e) {
+                console.warn('Geçmiş yüklenemedi:', e);
+            }
+        }
+
+        function renderHistoryChart(history) {
+            const labels = history.map(h => {
+                const d = new Date(h.recorded_at);
+                return `${d.getDate()}/${d.getMonth()+1}`;
+            });
+            const values = history.map(h => h.fill_level);
+            const ctx = document.getElementById('historyChart').getContext('2d');
+            if (_historyChart) _historyChart.destroy();
+            _historyChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [{
+                        data: values, fill: true,
+                        borderColor: '#1e3a5f', backgroundColor: 'rgba(30,58,95,0.08)',
+                        pointBackgroundColor: values.map(v => v >= 85 ? '#dc2626' : v >= 70 ? '#f97316' : '#1e3a5f'),
+                        pointRadius: 4, tension: 0.3
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { callbacks: { label: c => ` %${c.raw} dolu` } },
+                        annotation: { annotations: {
+                            warn: { type: 'line', yMin: 70, yMax: 70, borderColor: '#f97316', borderWidth: 1, borderDash: [4,4] },
+                            crit: { type: 'line', yMin: 85, yMax: 85, borderColor: '#dc2626', borderWidth: 1, borderDash: [4,4] }
+                        }}
+                    },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { font: { size: 10 } } },
+                        y: { min: 0, max: 100, grid: { color: '#f1f5f9' }, ticks: { callback: v => v+'%', font: { size: 10 } } }
+                    }
+                }
+            });
         }
     </script>
 

@@ -556,6 +556,120 @@ def report_stats():
         conn.close()
 
 
+def _ensure_fill_history_table():
+    """container_fill_history tablosunu oluştur (yoksa)"""
+    conn = get_db_connection()
+    try:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS container_fill_history (
+                history_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                container_id INTEGER NOT NULL,
+                fill_level   REAL NOT NULL,
+                recorded_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                source       TEXT DEFAULT 'SYSTEM'
+            )
+        ''')
+        conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_fill_hist_cid_date
+            ON container_fill_history(container_id, recorded_at DESC)
+        ''')
+        conn.commit()
+    finally:
+        conn.close()
+
+_ensure_fill_history_table()
+
+
+def _record_fill_snapshot():
+    """Tüm konteynerlerin doluluk seviyesini history tablosuna kaydet (günde 1-2 kez)"""
+    conn = get_db_connection()
+    try:
+        rows = conn.execute('SELECT container_id, current_fill_level FROM containers').fetchall()
+        now = datetime.now().isoformat()
+        conn.executemany(
+            'INSERT INTO container_fill_history (container_id, fill_level, recorded_at, source) VALUES (?,?,?,?)',
+            [(r['container_id'], r['current_fill_level'], now, 'SYSTEM') for r in rows]
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+# İlk başlatmada anlık snapshot al
+try:
+    _record_fill_snapshot()
+except Exception:
+    pass
+
+
+@app.route('/api/containers/<int:container_id>/history')
+def container_fill_history(container_id):
+    """Bir konteynerin doluluk geçmişini döndür"""
+    if container_id <= 0:
+        return jsonify({'error': 'Geçersiz konteyner ID'}), 400
+
+    try:
+        days = int(request.args.get('days', 30))
+        days = max(1, min(90, days))
+    except (ValueError, TypeError):
+        days = 30
+
+    conn = get_db_connection()
+    try:
+        container = conn.execute('''
+            SELECT c.container_id, c.container_type, c.current_fill_level,
+                   n.neighborhood_name
+            FROM containers c
+            JOIN neighborhoods n ON c.neighborhood_id = n.neighborhood_id
+            WHERE c.container_id = ?
+        ''', (container_id,)).fetchone()
+
+        if not container:
+            return jsonify({'error': 'Konteyner bulunamadı'}), 404
+
+        history_rows = conn.execute('''
+            SELECT fill_level, recorded_at, source
+            FROM container_fill_history
+            WHERE container_id = ?
+              AND recorded_at >= datetime('now', ? || ' days')
+            ORDER BY recorded_at ASC
+        ''', (container_id, f'-{days}')).fetchall()
+
+        history = [
+            {'fill_level': round(r['fill_level'] * 100, 1),
+             'recorded_at': r['recorded_at'],
+             'source': r['source']}
+            for r in history_rows
+        ]
+
+        # Trend hesapla
+        fill_values = [r['fill_level'] for r in history_rows]
+        trend = None
+        if len(fill_values) >= 2:
+            diffs = [fill_values[i+1] - fill_values[i] for i in range(len(fill_values)-1)]
+            avg_daily = sum(diffs) / len(diffs)
+            current = container['current_fill_level']
+            if avg_daily > 0:
+                hours_until_full = (0.95 - current) / avg_daily * 24 if avg_daily > 0 else None
+                trend = {
+                    'daily_fill_rate': round(avg_daily * 100, 2),
+                    'direction': 'INCREASING' if avg_daily > 0.005 else ('DECREASING' if avg_daily < -0.005 else 'STABLE'),
+                    'hours_until_full': round(hours_until_full) if hours_until_full and hours_until_full > 0 else None
+                }
+
+        return jsonify({
+            'container_id': container_id,
+            'container_type': container['container_type'],
+            'neighborhood': container['neighborhood_name'],
+            'current_fill_percent': round(container['current_fill_level'] * 100, 1),
+            'period_days': days,
+            'history': history,
+            'trend': trend,
+            'record_count': len(history)
+        })
+    finally:
+        conn.close()
+
+
 @app.route('/api/stats/dashboard')
 def stats_dashboard():
     """Genel dashboard istatistikleri"""
