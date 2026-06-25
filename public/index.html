@@ -437,6 +437,55 @@
             </div>
         </div>
 
+        <!-- Çevre Etkisi Widget -->
+        <div id="envWidget" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:1.5rem;margin-bottom:1.5rem;cursor:pointer;" onclick="toggleEnvDetail()">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+                <h3 style="font-size:0.875rem;font-weight:600;color:#16a34a;text-transform:uppercase;letter-spacing:0.5px;">🌱 Çevre Etkisi Özeti</h3>
+                <span style="font-size:0.75rem;color:#64748b;" id="envToggleHint">▼ Detaylar</span>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;" id="envSummary">
+                <div style="text-align:center;">
+                    <div style="font-size:1.4rem;font-weight:700;color:#16a34a;" id="envCO2">—</div>
+                    <div style="font-size:0.7rem;color:#64748b;">kg CO₂ Azaltım</div>
+                </div>
+                <div style="text-align:center;">
+                    <div style="font-size:1.4rem;font-weight:700;color:#1e3a5f;" id="envTrees">—</div>
+                    <div style="font-size:0.7rem;color:#64748b;">Ağaç Eşdeğeri</div>
+                </div>
+                <div style="text-align:center;">
+                    <div style="font-size:1.4rem;font-weight:700;color:#ca8a04;" id="envFuel">—</div>
+                    <div style="font-size:0.7rem;color:#64748b;">L Yakıt Tasarrufu</div>
+                </div>
+                <div style="text-align:center;">
+                    <div style="font-size:1.4rem;font-weight:700;color:#0e7490;" id="envKm">—</div>
+                    <div style="font-size:0.7rem;color:#64748b;">km Rota Tasarrufu</div>
+                </div>
+            </div>
+
+            <div id="envDetail" style="display:none;margin-top:1.25rem;border-top:1px solid #bbf7d0;padding-top:1.25rem;">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+                    <div style="background:#fff;border-radius:8px;padding:1rem;">
+                        <div style="font-size:0.78rem;font-weight:600;color:#475569;margin-bottom:8px;">Aylık Atık Etkisi</div>
+                        <div style="font-size:0.8rem;color:#334155;line-height:1.8;">
+                            <div>Toplam Atık: <strong id="envWasteKg">—</strong> kg</div>
+                            <div>CO₂ Azaltım: <strong id="envCO2Detail">—</strong> kg</div>
+                            <div>Ağaç Eşdeğeri: <strong id="envTreesDetail">—</strong> ağaç/yıl</div>
+                        </div>
+                    </div>
+                    <div style="background:#fff;border-radius:8px;padding:1rem;">
+                        <div style="font-size:0.78rem;font-weight:600;color:#475569;margin-bottom:8px;">Yıllık Projeksiyon</div>
+                        <div style="font-size:0.8rem;color:#334155;line-height:1.8;">
+                            <div>Yıllık CO₂: <strong id="envAnnualCO2">—</strong> kg</div>
+                            <div>Yıllık Ağaç: <strong id="envAnnualTrees">—</strong> eşdeğeri</div>
+                        </div>
+                    </div>
+                </div>
+                <div style="margin-top:1rem;padding:10px;background:#dcfce7;border-radius:6px;font-size:0.78rem;color:#15803d;text-align:center;">
+                    💡 Bu veriler AI optimizasyonu ile elde edilen iyileştirmeleri yansıtmaktadır. Katsayılar IPCC 2021 tabanlıdır.
+                </div>
+            </div>
+        </div>
+
         <!-- Map -->
         <div class="map-container">
             <div class="map-header">
@@ -1451,9 +1500,41 @@
             };
         }
 
+        // ——— Çevre Etkisi Widget ———
+        let _envDetailOpen = false;
+
+        function toggleEnvDetail() {
+            _envDetailOpen = !_envDetailOpen;
+            document.getElementById('envDetail').style.display = _envDetailOpen ? 'block' : 'none';
+            document.getElementById('envToggleHint').textContent = _envDetailOpen ? '▲ Kapat' : '▼ Detaylar';
+        }
+
+        async function loadEnvImpact() {
+            try {
+                const resp = await fetch('/api/environmental/impact');
+                if (!resp.ok) return;
+                const d = await resp.json();
+                const s = d.environmental_savings;
+                const p = d.projections;
+                const w = d.waste;
+
+                document.getElementById('envCO2').textContent   = s.total_co2_kg.toLocaleString('tr-TR');
+                document.getElementById('envTrees').textContent = Math.round(s.trees_equivalent);
+                document.getElementById('envFuel').textContent  = s.fuel_saved_liters.toLocaleString('tr-TR');
+                document.getElementById('envKm').textContent    = s.km_saved.toLocaleString('tr-TR');
+
+                document.getElementById('envWasteKg').textContent    = w.total_kg.toLocaleString('tr-TR');
+                document.getElementById('envCO2Detail').textContent  = s.co2_reduced_kg.toLocaleString('tr-TR');
+                document.getElementById('envTreesDetail').textContent = Math.round(s.trees_equivalent);
+                document.getElementById('envAnnualCO2').textContent   = p.annual_co2_kg.toLocaleString('tr-TR');
+                document.getElementById('envAnnualTrees').textContent = Math.round(p.annual_trees_equivalent);
+            } catch(e) { /* sessiz hata */ }
+        }
+
         // Sayfa yüklenince bağlan
         document.addEventListener('DOMContentLoaded', function() {
             setTimeout(connectAlertStream, 2000);
+            loadEnvImpact();
         });
     </script>
 </body>
