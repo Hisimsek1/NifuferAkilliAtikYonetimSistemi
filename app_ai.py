@@ -556,6 +556,70 @@ def report_stats():
         conn.close()
 
 
+@app.route('/api/stats/dashboard')
+def stats_dashboard():
+    """Genel dashboard istatistikleri"""
+    conn = get_db_connection()
+    try:
+        total_containers = conn.execute('SELECT COUNT(*) as c FROM containers').fetchone()['c']
+        total_vehicles   = conn.execute('SELECT COUNT(*) as c FROM vehicles WHERE status="active"').fetchone()['c']
+        total_hoods      = conn.execute('SELECT COUNT(*) as c FROM neighborhoods').fetchone()['c']
+        avg_fill_row     = conn.execute('SELECT AVG(current_fill_level) as v FROM containers').fetchone()
+        avg_fill         = avg_fill_row['v'] or 0.0
+
+        critical_count  = conn.execute("SELECT COUNT(*) as c FROM containers WHERE current_fill_level >= 0.9").fetchone()['c']
+        warning_count   = conn.execute("SELECT COUNT(*) as c FROM containers WHERE current_fill_level >= 0.7 AND current_fill_level < 0.9").fetchone()['c']
+        normal_count    = conn.execute("SELECT COUNT(*) as c FROM containers WHERE current_fill_level < 0.7").fetchone()['c']
+
+        fill_dist = conn.execute('''
+            SELECT
+                SUM(CASE WHEN current_fill_level < 0.3 THEN 1 ELSE 0 END) as empty,
+                SUM(CASE WHEN current_fill_level >= 0.3 AND current_fill_level < 0.6 THEN 1 ELSE 0 END) as half,
+                SUM(CASE WHEN current_fill_level >= 0.6 AND current_fill_level < 0.85 THEN 1 ELSE 0 END) as near_full,
+                SUM(CASE WHEN current_fill_level >= 0.85 THEN 1 ELSE 0 END) as critical
+            FROM containers
+        ''').fetchone()
+
+        top_hoods = conn.execute('''
+            SELECT n.neighborhood_name, COUNT(c.container_id) as container_count,
+                   AVG(c.current_fill_level) as avg_fill
+            FROM neighborhoods n
+            LEFT JOIN containers c ON n.neighborhood_id = c.neighborhood_id
+            GROUP BY n.neighborhood_id, n.neighborhood_name
+            ORDER BY avg_fill DESC
+            LIMIT 8
+        ''').fetchall()
+
+        return jsonify({
+            'summary': {
+                'total_containers': total_containers,
+                'total_vehicles': total_vehicles,
+                'total_neighborhoods': total_hoods,
+                'avg_fill_percent': round(avg_fill * 100, 1),
+                'critical_containers': critical_count,
+                'warning_containers': warning_count,
+                'normal_containers': normal_count
+            },
+            'fill_distribution': {
+                'empty': fill_dist['empty'] or 0,
+                'half': fill_dist['half'] or 0,
+                'near_full': fill_dist['near_full'] or 0,
+                'critical': fill_dist['critical'] or 0
+            },
+            'top_neighborhoods': [
+                {
+                    'name': r['neighborhood_name'],
+                    'container_count': r['container_count'],
+                    'avg_fill_percent': round((r['avg_fill'] or 0) * 100, 1)
+                }
+                for r in top_hoods
+            ],
+            'timestamp': datetime.now().isoformat()
+        })
+    finally:
+        conn.close()
+
+
 @app.route('/containers/all')
 def containers_all():
     """Tüm konteynerleri detaylı getir"""

@@ -726,6 +726,71 @@
         </div>
     </div>
 
+    <!-- ============ İSTATİSTİK DASHBOARD BÖLÜMÜ ============ -->
+    <div style="max-width:1800px;margin:2rem auto;padding:0 2rem;">
+        <h2 style="font-size:0.875rem;font-weight:600;color:#334155;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:1rem;">
+            📊 İstatistik Dashboard
+            <button onclick="loadStatsCharts()" style="margin-left:12px;background:#1e3a5f;color:#fff;border:none;border-radius:6px;padding:4px 12px;font-size:0.75rem;cursor:pointer;font-family:inherit;">
+                Yenile
+            </button>
+        </h2>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;">
+            <!-- Doluluk Dağılımı Donut -->
+            <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:1.5rem;">
+                <h3 style="font-size:0.8rem;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:1rem;">
+                    Konteyner Doluluk Dağılımı
+                </h3>
+                <div style="position:relative;height:260px;display:flex;align-items:center;justify-content:center;">
+                    <canvas id="fillDistChart"></canvas>
+                    <div id="fillDistCenter" style="position:absolute;text-align:center;pointer-events:none;">
+                        <div style="font-size:1.8rem;font-weight:700;color:#0f172a;" id="totalContainerCount">—</div>
+                        <div style="font-size:0.7rem;color:#64748b;">Toplam Konteyner</div>
+                    </div>
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:1rem;" id="fillDistLegend"></div>
+            </div>
+
+            <!-- Mahalle Bazında Doluluk Bar Chart -->
+            <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:1.5rem;">
+                <h3 style="font-size:0.8rem;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:1rem;">
+                    Mahalle Bazında Ortalama Doluluk (%)
+                </h3>
+                <div style="height:260px;">
+                    <canvas id="neighborhoodChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Özet İstatistik Kartları -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-top:1.5rem;" id="statsSummaryCards">
+            <div class="stat-mini-card" id="sc-total">
+                <div class="stat-mini-label">Toplam Konteyner</div>
+                <div class="stat-mini-value" id="sc-total-val">—</div>
+            </div>
+            <div class="stat-mini-card" id="sc-critical">
+                <div class="stat-mini-label">Kritik (&gt;90%)</div>
+                <div class="stat-mini-value" style="color:#dc2626;" id="sc-critical-val">—</div>
+            </div>
+            <div class="stat-mini-card" id="sc-warning">
+                <div class="stat-mini-label">Uyarı (70-90%)</div>
+                <div class="stat-mini-value" style="color:#ca8a04;" id="sc-warning-val">—</div>
+            </div>
+            <div class="stat-mini-card" id="sc-avg">
+                <div class="stat-mini-label">Ortalama Doluluk</div>
+                <div class="stat-mini-value" style="color:#1e3a5f;" id="sc-avg-val">—</div>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .stat-mini-card {
+            background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+            padding: 1.25rem; text-align: center;
+        }
+        .stat-mini-label { font-size: 0.75rem; color: #64748b; font-weight: 500; margin-bottom: 6px; }
+        .stat-mini-value { font-size: 1.6rem; font-weight: 700; color: #0f172a; }
+    </style>
+
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet-polylinedecorator@1.6.0/dist/leaflet.polylineDecorator.js"></script>
     <script>
@@ -766,7 +831,80 @@
             // Animate savings counter
             animateCounter('dailySavings', 14500, '₺');
             animateCounter('co2Saved', 450, ' kg');
+
+            // İstatistik grafikleri yükle
+            setTimeout(loadStatsCharts, 500);
         });
+
+        // ============ İSTATİSTİK DASHBOARD ============
+        let _fillDistChart = null;
+        let _neighborhoodChart = null;
+
+        async function loadStatsCharts() {
+            try {
+                const resp = await fetch('/api/stats/dashboard');
+                if (!resp.ok) throw new Error('API hatası');
+                const data = await resp.json();
+                renderFillDistChart(data.fill_distribution, data.summary.total_containers);
+                renderNeighborhoodChart(data.top_neighborhoods);
+                updateStatsSummary(data.summary);
+            } catch(e) {
+                console.warn('Stats yüklenemedi:', e);
+            }
+        }
+
+        function renderFillDistChart(dist, total) {
+            document.getElementById('totalContainerCount').textContent = total;
+            const ctx = document.getElementById('fillDistChart').getContext('2d');
+            if (_fillDistChart) _fillDistChart.destroy();
+            const labels = ['Boş (<30%)', 'Yarı Dolu (30-60%)', 'Doluya Yakın (60-85%)', 'Kritik (>85%)'];
+            const values = [dist.empty, dist.half, dist.near_full, dist.critical];
+            const colors = ['#10b981', '#f59e0b', '#f97316', '#dc2626'];
+            _fillDistChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: '#fff', hoverOffset: 6 }] },
+                options: {
+                    cutout: '65%', responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { callbacks: { label: (c) => ` ${c.label}: ${c.raw} konteyner (%${Math.round(c.raw/total*100)})` } }
+                    }
+                }
+            });
+            const legend = document.getElementById('fillDistLegend');
+            legend.innerHTML = labels.map((l,i) => `
+                <div style="display:flex;align-items:center;gap:5px;font-size:0.72rem;color:#475569;">
+                    <span style="width:10px;height:10px;border-radius:2px;background:${colors[i]};flex-shrink:0;"></span>${l}: <b>${values[i]}</b>
+                </div>
+            `).join('');
+        }
+
+        function renderNeighborhoodChart(hoods) {
+            const ctx = document.getElementById('neighborhoodChart').getContext('2d');
+            if (_neighborhoodChart) _neighborhoodChart.destroy();
+            const labels = hoods.map(h => h.name.replace(' Mahallesi','').replace(' mahallesi',''));
+            const values = hoods.map(h => h.avg_fill_percent);
+            const bgColors = values.map(v => v >= 85 ? '#dc2626' : v >= 70 ? '#f97316' : '#1e3a5f');
+            _neighborhoodChart = new Chart(ctx, {
+                type: 'bar',
+                data: { labels, datasets: [{ data: values, backgroundColor: bgColors, borderRadius: 6 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` Ort. doluluk: %${c.raw}` } } },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+                        y: { min: 0, max: 100, grid: { color: '#f1f5f9' }, ticks: { callback: v => v + '%', font: { size: 11 } } }
+                    }
+                }
+            });
+        }
+
+        function updateStatsSummary(s) {
+            document.getElementById('sc-total-val').textContent  = s.total_containers;
+            document.getElementById('sc-critical-val').textContent = s.critical_containers;
+            document.getElementById('sc-warning-val').textContent  = s.warning_containers;
+            document.getElementById('sc-avg-val').textContent  = '%' + s.avg_fill_percent;
+        }
         
         function animateCounter(elementId, targetValue, suffix = '') {
             const element = document.getElementById(elementId);
