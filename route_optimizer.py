@@ -242,9 +242,10 @@ class RouteOptimizer:
                     last_collection_date = datetime.fromisoformat(last_collection)
                 else:
                     last_collection_date = datetime.strptime(last_collection, '%Y-%m-%d')
-                
+
                 days_since = (datetime.now() - last_collection_date).days
-            except:
+            except (ValueError, TypeError) as e:
+                print(f"⚠️ Tarih parse hatası (container {row[0]}): {e}")
                 days_since = 5  # Varsayılan
             
             priority = 0.5 * row[6] + 0.3 * min(days_since / 10, 1.0) + 0.2 * 0.5

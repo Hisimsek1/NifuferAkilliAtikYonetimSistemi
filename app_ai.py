@@ -112,73 +112,77 @@ def register():
 def get_containers():
     """Tüm konteynerleri getir"""
     conn = get_db_connection()
-    containers = conn.execute('''
-        SELECT c.*, n.neighborhood_name, n.population 
-        FROM containers c 
-        JOIN neighborhoods n ON c.neighborhood_id = n.neighborhood_id
-    ''').fetchall()
-    conn.close()
-    
-    return jsonify([dict(row) for row in containers])
+    try:
+        containers = conn.execute('''
+            SELECT c.*, n.neighborhood_name, n.population
+            FROM containers c
+            JOIN neighborhoods n ON c.neighborhood_id = n.neighborhood_id
+        ''').fetchall()
+        return jsonify([dict(row) for row in containers])
+    finally:
+        conn.close()
 
 @app.route('/api/predict_fill/<int:container_id>')
 def predict_fill_level(container_id):
     """Bir konteyner için doluluk tahmini yap"""
     if not AI_ENABLED:
-        return jsonify({'error': 'AI model not loaded'}), 500
-    
+        return jsonify({'error': 'AI servisi şu anda devre dışı', 'code': 'AI_DISABLED'}), 503
+
+    if container_id <= 0:
+        return jsonify({'error': 'Geçersiz konteyner ID'}), 400
+
     conn = get_db_connection()
-    container = conn.execute('''
-        SELECT c.*, n.population
-        FROM containers c
-        JOIN neighborhoods n ON c.neighborhood_id = n.neighborhood_id
-        WHERE c.container_id = ?
-    ''', (container_id,)).fetchone()
-    conn.close()
-    
-    if not container:
-        return jsonify({'error': 'Container not found'}), 404
-    
-    # Feature extraction (data_preparation.py ile aynı)
-    last_collection = datetime.strptime(container['last_collection_date'], '%Y-%m-%d')
-    days_since = (datetime.now() - last_collection).days
-    
-    # Özellikleri hazırla
-    features = {
-        'days_since_collection': days_since,
-        'day_of_week': datetime.now().weekday(),
-        'month': datetime.now().month,
-        'is_weekend': 1 if datetime.now().weekday() >= 5 else 0,
-        'collection_days_per_week': 3,  # Varsayılan
-        'type_encoded': 1 if '400' in container['container_type'] else 2,
-        'capacity_category': 2,  # medium
-        'population_density': 5.0,  # Varsayılan
-        'current_fill_level': container['current_fill_level']
-    }
-    
-    # Tahmin yap
-    X = np.array([[
-        features['days_since_collection'],
-        features['day_of_week'],
-        features['month'],
-        features['is_weekend'],
-        features['collection_days_per_week'],
-        features['type_encoded'],
-        features['capacity_category'],
-        features['population_density'],
-        features['current_fill_level']
-    ]])
-    
-    prediction = fill_prediction_model.predict(X)[0]
-    prediction = np.clip(prediction, 0, 0.95)
-    
-    return jsonify({
-        'container_id': container_id,
-        'current_fill': float(container['current_fill_level']),
-        'predicted_fill': float(prediction),
-        'model': model_metadata['metrics']['model_name'],
-        'confidence': float(1 - model_metadata['metrics']['mae'])
-    })
+    try:
+        container = conn.execute('''
+            SELECT c.*, n.population
+            FROM containers c
+            JOIN neighborhoods n ON c.neighborhood_id = n.neighborhood_id
+            WHERE c.container_id = ?
+        ''', (container_id,)).fetchone()
+
+        if not container:
+            return jsonify({'error': 'Konteyner bulunamadı'}), 404
+
+        # data_preparation.py ile uyumlu type encoding
+        type_map = {'400lt': 1, '770lt': 2, 'underground': 3, '5000lt': 4}
+        container_type = container['container_type'].lower()
+        type_encoded = next((v for k, v in type_map.items() if k in container_type), 2)
+
+        last_collection = datetime.strptime(container['last_collection_date'], '%Y-%m-%d')
+        days_since = (datetime.now() - last_collection).days
+
+        X = np.array([[
+            days_since,
+            datetime.now().weekday(),
+            datetime.now().month,
+            1 if datetime.now().weekday() >= 5 else 0,
+            3,
+            type_encoded,
+            2,
+            5.0,
+            container['current_fill_level']
+        ]])
+
+        # Eğitimde kullanılan scaler ile normalize et
+        X_scaled = fill_scaler.transform(X)
+        prediction = fill_prediction_model.predict(X_scaled)[0]
+        prediction = float(np.clip(prediction, 0, 0.95))
+
+        mae = model_metadata['metrics']['mae']
+        confidence = max(0.0, min(1.0, 1.0 - mae))
+
+        return jsonify({
+            'container_id': container_id,
+            'current_fill': float(container['current_fill_level']),
+            'predicted_fill': prediction,
+            'model': model_metadata['metrics']['model_name'],
+            'confidence': confidence
+        })
+    except Exception as e:
+        app.logger.error(f"predict_fill hatası (container {container_id}): {e}", exc_info=True)
+        return jsonify({'error': 'Tahmin yapılamadı', 'code': 'PREDICTION_ERROR'}), 500
+    finally:
+        conn.close()
 
 @app.route('/api/optimize-routes', methods=['POST'])
 @app.route('/api/fleet/optimize-routes', methods=['GET', 'POST'])
@@ -187,10 +191,19 @@ def optimize_routes():
     try:
         # Parametreler - GET ve POST için farklı
         if request.method == 'GET':
-            min_priority = float(request.args.get('min_priority', 0.6))
+            try:
+                min_priority = float(request.args.get('min_priority', 0.6))
+            except (ValueError, TypeError):
+                return jsonify({'success': False, 'error': 'Geçersiz min_priority değeri'}), 400
         else:
             data = request.get_json() or {}
-            min_priority = data.get('min_priority', 0.6)
+            try:
+                min_priority = float(data.get('min_priority', 0.6))
+            except (ValueError, TypeError):
+                return jsonify({'success': False, 'error': 'Geçersiz min_priority değeri'}), 400
+
+        if not (0.0 <= min_priority <= 1.0):
+            return jsonify({'success': False, 'error': 'min_priority 0 ile 1 arasında olmalıdır'}), 400
         
         print(f"\n🚀 Rota optimizasyonu başlıyor (min_priority={min_priority})...")
         
@@ -230,10 +243,8 @@ def optimize_routes():
         })
     
     except Exception as e:
-        print(f"❌ Hata: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        app.logger.error(f"Rota optimizasyon hatası: {e}", exc_info=True)
+        return jsonify({'success': False, 'error': 'Rota optimizasyonu başarısız', 'code': 'ROUTE_OPT_ERROR'}), 500
 
 @app.route('/api/model_info')
 def model_info():
@@ -255,59 +266,63 @@ def model_info():
 def get_neighborhoods():
     """Tüm mahalleleri getir"""
     conn = get_db_connection()
-    neighborhoods = conn.execute('SELECT * FROM neighborhoods').fetchall()
-    conn.close()
-    return jsonify([dict(row) for row in neighborhoods])
+    try:
+        neighborhoods = conn.execute('SELECT * FROM neighborhoods').fetchall()
+        return jsonify([dict(row) for row in neighborhoods])
+    finally:
+        conn.close()
 
 @app.route('/api/vehicles')
 def get_vehicles():
     """Tüm araçları getir"""
     conn = get_db_connection()
-    vehicles = conn.execute('''
-        SELECT v.*, vt.type_name, vt.capacity_tons
-        FROM vehicles v
-        JOIN vehicle_types vt ON v.type_id = vt.type_id
-    ''').fetchall()
-    conn.close()
-    return jsonify([dict(row) for row in vehicles])
+    try:
+        vehicles = conn.execute('''
+            SELECT v.*, vt.type_name, vt.capacity_tons
+            FROM vehicles v
+            JOIN vehicle_types vt ON v.type_id = vt.type_id
+        ''').fetchall()
+        return jsonify([dict(row) for row in vehicles])
+    finally:
+        conn.close()
 
 @app.route('/dashboard/stats')
 def dashboard_stats():
     """Dashboard istatistikleri"""
     conn = get_db_connection()
-    
-    total_containers = conn.execute('SELECT COUNT(*) as count FROM containers').fetchone()['count']
-    total_vehicles = conn.execute('SELECT COUNT(*) as count FROM vehicles WHERE status="active"').fetchone()['count']
-    total_neighborhoods = conn.execute('SELECT COUNT(*) as count FROM neighborhoods').fetchone()['count']
-    
-    avg_fill = conn.execute('SELECT AVG(current_fill_level) as avg FROM containers').fetchone()['avg']
-    high_priority = conn.execute('SELECT COUNT(*) as count FROM containers WHERE current_fill_level >= 0.7').fetchone()['count']
-    
-    conn.close()
-    
-    return jsonify({
-        'total_containers': total_containers,
-        'full_containers': high_priority,
-        'fill_rate': avg_fill if avg_fill else 0,
-        'total_vehicles': total_vehicles,
-        'neighborhoods': total_neighborhoods,
-        'avg_fill_level': round(avg_fill * 100, 1) if avg_fill else 0,
-        'high_priority_containers': high_priority
-    })
+    try:
+        total_containers = conn.execute('SELECT COUNT(*) as count FROM containers').fetchone()['count']
+        total_vehicles = conn.execute('SELECT COUNT(*) as count FROM vehicles WHERE status="active"').fetchone()['count']
+        total_neighborhoods = conn.execute('SELECT COUNT(*) as count FROM neighborhoods').fetchone()['count']
+        avg_fill = conn.execute('SELECT AVG(current_fill_level) as avg FROM containers').fetchone()['avg']
+        high_priority = conn.execute('SELECT COUNT(*) as count FROM containers WHERE current_fill_level >= 0.7').fetchone()['count']
+
+        return jsonify({
+            'total_containers': total_containers,
+            'full_containers': high_priority,
+            'fill_rate': avg_fill if avg_fill else 0,
+            'total_vehicles': total_vehicles,
+            'neighborhoods': total_neighborhoods,
+            'avg_fill_level': round(avg_fill * 100, 1) if avg_fill else 0,
+            'high_priority_containers': high_priority
+        })
+    finally:
+        conn.close()
 
 @app.route('/containers/all')
 def containers_all():
     """Tüm konteynerleri detaylı getir"""
     conn = get_db_connection()
-    containers = conn.execute('''
-        SELECT c.*, n.neighborhood_name, n.population 
-        FROM containers c 
-        JOIN neighborhoods n ON c.neighborhood_id = n.neighborhood_id
-        ORDER BY c.current_fill_level DESC
-    ''').fetchall()
-    conn.close()
-    
-    return jsonify([dict(row) for row in containers])
+    try:
+        containers = conn.execute('''
+            SELECT c.*, n.neighborhood_name, n.population
+            FROM containers c
+            JOIN neighborhoods n ON c.neighborhood_id = n.neighborhood_id
+            ORDER BY c.current_fill_level DESC
+        ''').fetchall()
+        return jsonify([dict(row) for row in containers])
+    finally:
+        conn.close()
 
 if __name__ == '__main__':
     print("="*80)

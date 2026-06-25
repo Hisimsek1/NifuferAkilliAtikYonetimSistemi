@@ -818,11 +818,15 @@
                     updateFleetList(data.routes);
                     console.log(`✓ ${data.routes.length} araç için rota oluşturuldu`);
                 } else {
-                    alert('Rota oluşturulamadı: ' + (data.message || 'Bilinmeyen hata'));
+                    if (typeof showAdminNotification === 'function') {
+                        showAdminNotification('Rota oluşturulamadı: ' + (data.message || 'Bilinmeyen hata'), 'error');
+                    }
                 }
             } catch (error) {
                 console.error('Rota optimizasyon hatası:', error);
-                alert('Sunucu bağlantı hatası. Lütfen tekrar deneyin.');
+                if (typeof showAdminNotification === 'function') {
+                    showAdminNotification('Sunucu bağlantı hatası. Lütfen tekrar deneyin.', 'error');
+                }
             } finally {
                 button.disabled = false;
                 button.textContent = originalText;

@@ -1,20 +1,32 @@
 // Admin Dashboard JavaScript
 
+// XSS koruması için yardımcı fonksiyon
+function escapeHtml(str) {
+    if (typeof str !== 'string') return String(str);
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
 // ============== TAB NAVIGATION ==============
-function showTab(tabName) {
+function showTab(tabName, evt) {
     // Hide all tabs
     const tabs = document.querySelectorAll('.tab-content');
     tabs.forEach(tab => tab.style.display = 'none');
-    
+
     // Remove active class from all tab buttons
     const tabButtons = document.querySelectorAll('.admin-tab');
     tabButtons.forEach(btn => btn.classList.remove('active'));
-    
+
     // Show selected tab
     document.getElementById(`${tabName}-tab`).style.display = 'block';
-    
+
     // Add active class to clicked button
-    event.target.classList.add('active');
+    const clickedBtn = evt && evt.target ? evt.target : document.querySelector(`[onclick*="${tabName}"]`);
+    if (clickedBtn) clickedBtn.classList.add('active');
 }
 
 // ============== FLEET CHANGE CALCULATIONS ==============
@@ -267,7 +279,7 @@ function displayResults(results) {
     // Update reasons list
     const reasonsList = document.getElementById('recommendationReasons');
     reasonsList.innerHTML = recommendation.reasons
-        .map(reason => `<li>${reason}</li>`)
+        .map(reason => `<li>${escapeHtml(reason)}</li>`)
         .join('');
     
     // Update metric cards
@@ -321,8 +333,8 @@ function exportReport() {
 let fleetMap = null;
 let routeData = null;
 
-function optimizeRoutes() {
-    const button = event.target;
+function optimizeRoutes(evt) {
+    const button = (evt && evt.target) ? evt.target : document.getElementById('optimizeBtn');
     button.disabled = true;
     button.textContent = 'Rotalar Optimize Ediliyor...';
     
@@ -335,12 +347,12 @@ function optimizeRoutes() {
                 displayRouteMap(data.routes);
                 displayRouteDetails(data.routes);
             } else {
-                alert('Hata: ' + data.message);
+                showAdminNotification('Hata: ' + escapeHtml(data.message || 'Bilinmeyen hata'), 'error');
             }
         })
         .catch(err => {
             console.error('Route optimization error:', err);
-            alert('Rota optimizasyonu sırasında hata oluştu');
+            showAdminNotification('Rota optimizasyonu sırasında hata oluştu', 'error');
         })
         .finally(() => {
             button.disabled = false;
@@ -360,9 +372,11 @@ function displayRouteMap(routes) {
     const mapContainer = document.getElementById('fleetMapContainer');
     mapContainer.style.display = 'block';
     
-    // Harita zaten varsa temizle
+    // Harita zaten varsa event listener'ları da temizle
     if (fleetMap) {
+        fleetMap.off();
         fleetMap.remove();
+        fleetMap = null;
     }
     
     // Yeni harita oluştur
@@ -464,6 +478,27 @@ function displayRouteDetails(routes) {
             </div>
         `;
     }).join('');
+}
+
+// ============== NOTIFICATION HELPER ==============
+function showAdminNotification(message, type = 'info') {
+    let container = document.getElementById('adminNotifContainer');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'adminNotifContainer';
+        container.style.cssText = 'position:fixed;top:80px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px;max-width:360px;';
+        document.body.appendChild(container);
+    }
+
+    const colors = { error: '#dc2626', success: '#16a34a', info: '#1e3a5f', warning: '#ca8a04' };
+    const icons = { error: '✕', success: '✓', info: 'ℹ', warning: '⚠' };
+    const color = colors[type] || colors.info;
+
+    const toast = document.createElement('div');
+    toast.style.cssText = `background:#fff;border-left:4px solid ${color};padding:12px 16px;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,0.15);display:flex;align-items:flex-start;gap:10px;font-family:inherit;font-size:0.875rem;`;
+    toast.innerHTML = `<span style="color:${color};font-weight:700;flex-shrink:0;">${icons[type]}</span><span style="flex:1;color:#1e293b;">${escapeHtml(message)}</span><button onclick="this.parentElement.remove()" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:1rem;padding:0;flex-shrink:0;">×</button>`;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 5000);
 }
 
 // ============== INITIALIZATION ==============
