@@ -912,5 +912,117 @@
             legend.addTo(routeMap);
         }
     </script>
+
+    <!-- ============ GERÇEK ZAMANLI BİLDİRİM SİSTEMİ ============ -->
+    <style>
+        #notifContainer {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-width: 360px;
+            pointer-events: none;
+        }
+        .notif-toast {
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+            padding: 14px 16px;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            pointer-events: all;
+            animation: slideInRight 0.3s ease;
+            border-left: 4px solid #1e3a5f;
+        }
+        .notif-toast.critical { border-left-color: #dc2626; }
+        .notif-toast.warning  { border-left-color: #ca8a04; }
+        .notif-toast.success  { border-left-color: #16a34a; }
+        .notif-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 1px; }
+        .notif-body { flex: 1; min-width: 0; }
+        .notif-title { font-size: 0.8rem; font-weight: 600; color: #0f172a; }
+        .notif-text  { font-size: 0.75rem; color: #64748b; margin-top: 2px; line-height: 1.4; }
+        .notif-progress { height: 2px; background: #e2e8f0; border-radius: 1px; margin-top: 8px; overflow: hidden; }
+        .notif-progress-bar { height: 100%; background: #94a3b8; animation: shrink linear forwards; }
+        .notif-close { background: none; border: none; cursor: pointer; color: #94a3b8; font-size: 1.1rem; padding: 0; flex-shrink: 0; line-height: 1; }
+        .notif-close:hover { color: #475569; }
+        @keyframes slideInRight {
+            from { transform: translateX(120%); opacity: 0; }
+            to   { transform: translateX(0);   opacity: 1; }
+        }
+        @keyframes shrink {
+            from { width: 100%; }
+            to   { width: 0%; }
+        }
+    </style>
+
+    <div id="notifContainer"></div>
+
+    <script>
+        // ——— Toast Bildirim Motoru ———
+        const _seenAlerts = new Set();
+
+        function showToast(title, text, type = 'info', duration = 5000) {
+            const container = document.getElementById('notifContainer');
+            const icons = { critical: '🔴', warning: '⚠️', success: '✅', info: 'ℹ️' };
+            const toast = document.createElement('div');
+            toast.className = `notif-toast ${type}`;
+            toast.innerHTML = `
+                <span class="notif-icon">${icons[type] || icons.info}</span>
+                <div class="notif-body">
+                    <div class="notif-title">${title}</div>
+                    <div class="notif-text">${text}</div>
+                    <div class="notif-progress">
+                        <div class="notif-progress-bar" style="animation-duration:${duration}ms;"></div>
+                    </div>
+                </div>
+                <button class="notif-close" onclick="this.closest('.notif-toast').remove()">×</button>
+            `;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), duration + 300);
+        }
+
+        // ——— SSE Bağlantısı ———
+        function connectAlertStream() {
+            if (!window.EventSource) return;
+
+            const es = new EventSource('/api/stream/alerts');
+
+            es.onmessage = function(e) {
+                try {
+                    const payload = JSON.parse(e.data);
+                    if (payload.type !== 'container_alert') return;
+
+                    payload.alerts.forEach(alert => {
+                        const key = `${alert.container_id}-${Math.floor(Date.now()/60000)}`;
+                        if (_seenAlerts.has(key)) return;
+                        _seenAlerts.add(key);
+                        if (_seenAlerts.size > 500) _seenAlerts.clear();
+
+                        const isCritical = alert.alert_level === 'CRITICAL';
+                        showToast(
+                            isCritical ? '🚨 Kritik Konteyner!' : '⚠️ Yüksek Doluluk',
+                            `${alert.neighborhood} - ${alert.container_type} | %${alert.fill_level} dolu`,
+                            isCritical ? 'critical' : 'warning',
+                            isCritical ? 6000 : 4000
+                        );
+                    });
+                } catch(err) { /* JSON parse hatası görmezden gel */ }
+            };
+
+            es.onerror = function() {
+                es.close();
+                setTimeout(connectAlertStream, 15000);
+            };
+        }
+
+        // Sayfa yüklenince bağlan
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(connectAlertStream, 2000);
+        });
+    </script>
 </body>
 </html>

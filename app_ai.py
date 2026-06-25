@@ -6,10 +6,13 @@ Flask Backend with AI-Powered Optimization
 import joblib
 import json
 import numpy as np
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
 import sqlite3
 from datetime import datetime
+import threading
+import queue
+import time
 import sys
 sys.path.append('.')
 from route_optimizer import RouteOptimizer
@@ -39,6 +42,118 @@ def get_db_connection():
     conn = sqlite3.connect('nilufer_waste.db')
     conn.row_factory = sqlite3.Row
     return conn
+
+# ============ SSE - Gerçek Zamanlı Bildirim Sistemi ============
+_alert_clients = []
+_alert_clients_lock = threading.Lock()
+
+def _container_monitor():
+    """Her 30 saniyede kritik konteynerleri kontrol edip SSE istemcilerine gönderir."""
+    while True:
+        try:
+            conn = get_db_connection()
+            try:
+                rows = conn.execute('''
+                    SELECT c.container_id, c.current_fill_level, c.container_type,
+                           n.neighborhood_name
+                    FROM containers c
+                    JOIN neighborhoods n ON c.neighborhood_id = n.neighborhood_id
+                    WHERE c.current_fill_level >= 0.75
+                    ORDER BY c.current_fill_level DESC
+                    LIMIT 20
+                ''').fetchall()
+            finally:
+                conn.close()
+
+            if rows:
+                event_data = json.dumps({
+                    'type': 'container_alert',
+                    'timestamp': datetime.now().isoformat(),
+                    'alerts': [
+                        {
+                            'container_id': row['container_id'],
+                            'fill_level': round(row['current_fill_level'] * 100, 1),
+                            'container_type': row['container_type'],
+                            'neighborhood': row['neighborhood_name'],
+                            'alert_level': 'CRITICAL' if row['current_fill_level'] >= 0.90 else 'WARNING'
+                        }
+                        for row in rows
+                    ]
+                })
+                with _alert_clients_lock:
+                    dead = []
+                    for q in _alert_clients:
+                        try:
+                            q.put_nowait(event_data)
+                        except Exception:
+                            dead.append(q)
+                    for q in dead:
+                        _alert_clients.remove(q)
+        except Exception as e:
+            app.logger.error(f"Container monitor hatası: {e}")
+
+        time.sleep(30)
+
+_monitor_thread = threading.Thread(target=_container_monitor, daemon=True)
+_monitor_thread.start()
+
+@app.route('/api/stream/alerts')
+def stream_alerts():
+    """SSE endpoint — kritik konteyner bildirimleri"""
+    def generate():
+        client_q = queue.Queue(maxsize=50)
+        with _alert_clients_lock:
+            _alert_clients.append(client_q)
+        try:
+            yield ': connected\n\n'
+            while True:
+                try:
+                    data = client_q.get(timeout=25)
+                    yield f'data: {data}\n\n'
+                except queue.Empty:
+                    yield ': keepalive\n\n'
+        finally:
+            with _alert_clients_lock:
+                if client_q in _alert_clients:
+                    _alert_clients.remove(client_q)
+
+    return Response(
+        generate(),
+        content_type='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+            'Access-Control-Allow-Origin': '*'
+        }
+    )
+
+@app.route('/api/containers/critical')
+def get_critical_containers():
+    """Kritik doluluk seviyesindeki konteynerleri döndür (polling alternatifi)"""
+    try:
+        threshold = float(request.args.get('threshold', 0.75))
+        threshold = max(0.0, min(1.0, threshold))
+    except (ValueError, TypeError):
+        threshold = 0.75
+
+    conn = get_db_connection()
+    try:
+        rows = conn.execute('''
+            SELECT c.container_id, c.current_fill_level, c.container_type,
+                   n.neighborhood_name, c.latitude, c.longitude
+            FROM containers c
+            JOIN neighborhoods n ON c.neighborhood_id = n.neighborhood_id
+            WHERE c.current_fill_level >= ?
+            ORDER BY c.current_fill_level DESC
+        ''', (threshold,)).fetchall()
+        return jsonify({
+            'critical_containers': [dict(r) for r in rows],
+            'count': len(rows),
+            'threshold': threshold,
+            'timestamp': datetime.now().isoformat()
+        })
+    finally:
+        conn.close()
 
 @app.route('/')
 def index():
